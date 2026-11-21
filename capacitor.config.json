@@ -1,6 +1,6 @@
 {
   "appId": "com.eb3atly.recorder",
-  "appName": "مسجّل",
+  "appName": "A.R صوتي",
   "webDir": "dist",
   "android": {
     "allowMixedContent": false

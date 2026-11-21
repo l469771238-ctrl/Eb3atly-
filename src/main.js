@@ -3,11 +3,12 @@ import '@fontsource/tajawal/500.css';
 import '@fontsource/tajawal/700.css';
 import '@fontsource/tajawal/800.css';
 import './styles.css';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { VoiceRecorder } from 'capacitor-voice-recorder';
+// Native recorder (android/app/src/main/java/com/eb3atly/recorder/AudioRecorderPlugin.java)
+const AudioRecorder = registerPlugin('AudioRecorder');
 import { loadMeta, saveMeta, putBlob, getBlob, deleteBlob, pruneBlobs } from './storage.js';
 import { crc32, zipStore, zipRead } from './zip.js';
 
@@ -198,7 +199,6 @@ function openSave(blob,dur,ext,marks){
 /* ---------- recording (browser: MediaRecorder · Android: capacitor-voice-recorder) ---------- */
 let mr=null,chunks=[],stream=null,actx=null,analyser=null,rafR=null,t0=0,acc=0,paused=false,tickI=null,cancelled=false,busy=false,stopping=false;
 const wave=$('#wave'), wctx=wave.getContext('2d');
-const NATIVE_TMP={directory:Directory.Cache,subDirectory:'rec-tmp'};
 function fitCanvas(c){const r=c.getBoundingClientRect();c.width=r.width*devicePixelRatio;c.height=r.height*devicePixelRatio}
 function idleWave(){fitCanvas(wave);const w=wave.width,h=wave.height;wctx.clearRect(0,0,w,h);wctx.fillStyle=css('--line');for(let x=0;x<w;x+=9*devicePixelRatio)wctx.fillRect(x,h/2-1,4*devicePixelRatio,2*devicePixelRatio)}
 function setRecUI(on){
@@ -212,13 +212,16 @@ function nativeErr(e){
   if(c==='MICROPHONE_BEING_USED') return 'المايك مستخدم من تطبيق تاني';
   if(c==='ALREADY_RECORDING') return 'فيه تسجيل شغال بالفعل';
   if(c==='NOT_SUPPORTED_OS_VERSION') return 'الإيقاف المؤقت مش مدعوم على نسخة الأندرويد دي';
+  if(c==='EMPTY_RECORDING') return 'وقفت التسجيل بدري قوي، مفيش صوت يتحفظ';
   return 'حصلت مشكلة في التسجيل'+(e&&e.message?': '+e.message:'');
 }
 async function ensureMicPermission(){
   if(!isNative) return true; // the browser asks for the mic itself in getUserMedia
   try{
-    if((await VoiceRecorder.hasAudioRecordingPermission()).value) return true;
-    return (await VoiceRecorder.requestAudioRecordingPermission()).value;
+    let p=await AudioRecorder.checkPermissions();
+    if(p.microphone==='granted') return true;
+    p=await AudioRecorder.requestPermissions();
+    return p.microphone==='granted';
   }catch(e){return false}
 }
 function beginUI(){
@@ -257,7 +260,7 @@ async function startWeb(){
   beginUI();
 }
 async function startNative(){
-  try{await VoiceRecorder.startRecording(NATIVE_TMP)}
+  try{await AudioRecorder.start()}
   catch(e){toast(nativeErr(e));return}
   beginUI();
 }
@@ -279,10 +282,10 @@ async function pauseResume(){
   if(!busy||stopping)return;
   try{
     if(!paused){
-      if(isNative) await VoiceRecorder.pauseRecording(); else mr.pause();
+      if(isNative) await AudioRecorder.pause(); else mr.pause();
       acc+=Date.now()-t0; paused=true; $('#pauseIco').innerHTML=ICON.play; $('#rpState').textContent='متوقف مؤقتاً';
     }else{
-      if(isNative) await VoiceRecorder.resumeRecording(); else mr.resume();
+      if(isNative) await AudioRecorder.resume(); else mr.resume();
       t0=Date.now(); paused=false; $('#pauseIco').innerHTML=ICON.pause; $('#rpState').textContent='بيسجّل…';
     }
   }catch(e){toast(nativeErr(e))}
@@ -306,7 +309,7 @@ function onWebStopped(){
 }
 async function finishNative(){
   let res;
-  try{res=await VoiceRecorder.stopRecording()}
+  try{res=await AudioRecorder.stop()}
   catch(e){endUI();toast(nativeErr(e));return}
   const path=res.value.path;
   if(cancelled){endUI();removeTmp(path);recMarks=[];renderRecMarks();toast('اتلغى التسجيل');return}
@@ -485,7 +488,7 @@ function blobToBase64(blob){
 // (lets the user save it to Drive, Files, email, etc.).
 async function shareBackup(blob,name){
   const written=await Filesystem.writeFile({path:name,data:await blobToBase64(blob),directory:Directory.Cache,recursive:true});
-  await Share.share({title:'نسخة احتياطية - مسجّل',dialogTitle:'حفظ النسخة',files:[written.uri]});
+  await Share.share({title:'نسخة احتياطية - A.R صوتي',dialogTitle:'حفظ النسخة',files:[written.uri]});
 }
 $('#exBtn').onclick=async()=>{
   const b=await buildZip(); if(!b)return;
@@ -501,7 +504,7 @@ $('#shBtn').onclick=async()=>{
   const b=await buildZip(); if(!b)return;
   const f=new File([b],bkName(),{type:'application/zip'});
   if(navigator.canShare&&navigator.canShare({files:[f]})){
-    try{await navigator.share({files:[f],title:'نسخة احتياطية - مسجّل'});state.lastBackup=new Date();render()}catch(e){}
+    try{await navigator.share({files:[f],title:'نسخة احتياطية - A.R صوتي'});state.lastBackup=new Date();render()}catch(e){}
   }else toast('المشاركة مش مدعومة هنا. استخدم «تصدير» وارفع الملف على درايف');
 };
 $('#imBtn').onclick=()=>$('#imFile').click();

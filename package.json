@@ -25,8 +25,7 @@
     "@capacitor/core": "^8.6.2",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/share": "^8.0.3",
-    "@fontsource/tajawal": "^5.3.0",
-    "capacitor-voice-recorder": "^7.0.6"
+    "@fontsource/tajawal": "^5.3.0"
   },
   "devDependencies": {
     "@capacitor/android": "^8.6.2",

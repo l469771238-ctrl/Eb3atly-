@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">مسجّل</string>
-    <string name="title_activity_main">مسجّل</string>
+    <string name="app_name">A.R صوتي</string>
+    <string name="title_activity_main">A.R صوتي</string>
     <string name="package_name">com.eb3atly.recorder</string>
     <string name="custom_url_scheme">com.eb3atly.recorder</string>
 </resources>

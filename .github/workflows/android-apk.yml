@@ -2,17 +2,21 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -44,9 +48,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Prepare APK file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "A.R-sawti.apk"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: recorder-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: A.R-sawti-debug-apk
+          path: A.R-sawti.apk
           if-no-files-found: error
+
+      - name: Publish download link (release apk-latest)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apk-latest
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create "$TAG" "A.R-sawti.apk" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "A.R صوتي - أحدث APK" \
+            --notes "APK تجريبي (debug) من الـ commit $GITHUB_SHA. الفرع: $GITHUB_REF_NAME. لتثبيته فعّل 'تثبيت من مصادر غير معروفة' على الموبايل."
