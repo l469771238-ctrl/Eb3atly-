@@ -1,0 +1,8 @@
+{
+  "appId": "com.eb3atly.recorder",
+  "appName": "مسجّل",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}

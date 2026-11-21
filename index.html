@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05060D">
+<title>مسجّل</title>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- HOME -->
+  <section class="screen" id="home">
+    <div class="home-head"><h1>مسجّل</h1><p id="homeSub"></p>
+      <button class="iconbtn gear" id="gearBtn" aria-label="الإعدادات"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.4 7.4 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.3 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
+    </div>
+    <div class="tiles">
+      <button class="tile rec-tile" id="tRec">
+        <span class="ring"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12z"/></svg></span>
+        <span class="tt">تسجيل</span><span class="ts">ابدأ تسجيل جديد</span>
+      </button>
+      <button class="tile files" id="tFiles">
+        <span class="ring"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg></span>
+        <span class="tt">الملفات</span><span class="ts" id="filesSub"></span>
+      </button>
+    </div>
+  </section>
+
+  <!-- RECORD PAGE -->
+  <section class="screen hidden" id="recpage">
+    <div class="top">
+      <button class="iconbtn" id="rBack" aria-label="رجوع"><svg viewBox="0 0 24 24"><path d="M8.6 7.4 13.2 12l-4.6 4.6L10 18l6-6-6-6z"/></svg></button>
+      <h2>تسجيل جديد</h2>
+    </div>
+    <div class="rp-body" id="rpBody">
+      <div class="micwrap"><div class="micglow" id="micGlow"></div>
+        <button class="mic" id="micBtn" aria-label="ابدأ التسجيل"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12z"/></svg></button>
+      </div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="rp-state" id="rpState">اضغط على المايك عشان تبدأ</div>
+      <canvas class="wave" id="wave"></canvas>
+      <div class="mchips hidden" id="recMarks"></div>
+      <div class="rp-row hidden" id="rpRow">
+        <button class="flag" id="flagBtn" aria-label="ضع علامة"><svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></button>
+        <button id="pauseBtn" aria-label="إيقاف مؤقت"><svg viewBox="0 0 24 24" id="pauseIco"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
+        <button class="stop" id="stopBtn" aria-label="إنهاء"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+        <button id="cancelBtn" aria-label="إلغاء"><svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="screen hidden" id="settings">
+    <div class="top">
+      <button class="iconbtn" id="sBack" aria-label="رجوع"><svg viewBox="0 0 24 24"><path d="M8.6 7.4 13.2 12l-4.6 4.6L10 18l6-6-6-6z"/></svg></button>
+      <h2>الإعدادات</h2>
+    </div>
+    <div class="set-body">
+      <div class="card">
+        <h3>جودة التسجيل</h3>
+        <div class="desc" id="qDesc"></div>
+        <div class="opts" id="qOpts"></div>
+        <button class="optrow" id="nsRow" style="margin-top:8px">
+          <span class="ot"><b>تحسين الصوت من المتصفح</b><small>فلتر المتصفح بيقلّل الدوشة. بيشتغل على الويب بس</small></span>
+          <span class="sw on" id="nsSw"></span>
+        </button>
+      </div>
+      <div class="card">
+        <h3>النسخ الاحتياطي</h3>
+        <div class="desc">النسخة ملف ZIP واحد فيه كل التسجيلات بتنظيمها. لو التطبيق اتحذف، استورد النسخة ترجّع كل حاجة زي ما كانت.</div>
+        <div class="stat">
+          <div><b id="stRec">0</b><span>تسجيل</span></div>
+          <div><b id="stFol">0</b><span>فولدر</span></div>
+          <div><b id="stMb">0</b><span>ميجا</span></div>
+        </div>
+        <div class="desc" id="lastBk"></div>
+        <button class="bbtn pri" id="exBtn"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7zM5 18v2h14v-2z"/></svg><span id="exTxt">تصدير نسخة (ZIP)</span></button>
+        <button class="bbtn sec" id="shBtn"><svg viewBox="0 0 24 24"><path d="M18 16.1c-.8 0-1.5.3-2 .8l-7.1-4.2c.1-.2.1-.5.1-.7s0-.5-.1-.7L16 7.2c.5.5 1.2.8 2 .8a3 3 0 1 0-3-3c0 .2 0 .5.1.7L8 9.8A3 3 0 1 0 8 14.2l7.1 4.2c0 .2-.1.4-.1.6a3 3 0 1 0 3-2.9z"/></svg>مشاركة النسخة (درايف وغيره)</button>
+        <button class="bbtn ter" id="imBtn"><svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z" transform="rotate(180 12 12)"/></svg>استيراد نسخة</button>
+        <input type="file" id="imFile" accept=".zip,application/zip" hidden>
+      </div>
+    </div>
+  </section>
+
+  <!-- FILES (folders) -->
+  <section class="screen hidden" id="files">
+    <div class="top">
+      <button class="iconbtn" id="fBack" aria-label="رجوع"><svg viewBox="0 0 24 24"><path d="M8.6 7.4 13.2 12l-4.6 4.6L10 18l6-6-6-6z"/></svg></button>
+      <h2>الملفات</h2>
+    </div>
+    <div class="fol-list" id="folList"></div>
+  </section>
+
+  <!-- FOLDER VIEW -->
+  <section class="screen hidden" id="fview">
+    <div class="top">
+      <button class="iconbtn" id="vBack" aria-label="رجوع"><svg viewBox="0 0 24 24"><path d="M8.6 7.4 13.2 12l-4.6 4.6L10 18l6-6-6-6z"/></svg></button>
+      <h2 id="fvTitle"></h2>
+      <button class="iconbtn" id="fvMore" aria-label="خيارات الفولدر"><svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></button>
+    </div>
+    <div class="search"><input id="q" type="search" placeholder="ابحث في التسجيلات"></div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- PLAYER -->
+  <div class="sheet" id="sheet">
+    <div class="sheet-top">
+      <button class="iconbtn" id="closeP" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button>
+      <button class="iconbtn" id="moreP" aria-label="خيارات"><svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></button>
+    </div>
+    <div class="p-title" id="pTitle"></div>
+    <div class="p-sub" id="pSub"></div>
+    <canvas class="pwave" id="pwave"></canvas>
+    <input type="range" class="seek" id="seek" min="0" max="1000" value="0" aria-label="موضع التشغيل">
+    <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+    <div class="ctrls">
+      <button id="back10" aria-label="رجوع 10 ثوان">−10</button>
+      <button class="big" id="pp" aria-label="تشغيل"><svg viewBox="0 0 24 24" id="ppIco"><path d="M8 5v14l11-7z"/></svg></button>
+      <button id="fwd10" aria-label="تقديم 10 ثوان">+10</button>
+    </div>
+    <div class="speed-label"><span>سرعة التشغيل</span><b id="spVal">1x</b></div>
+    <div class="speeds" id="speeds"></div>
+    <input type="range" class="speed-slider" id="spSlider" min="0.25" max="3" step="0.05" value="1" aria-label="سرعة مخصصة">
+    <div class="mk-head"><span>العلامات</span><button id="addMk">+ علامة هنا</button></div>
+    <div class="mk-list" id="mkList"></div>
+    <div class="toggles">
+      <button class="tg" id="loopBtn">تكرار</button>
+      <button class="tg on" id="pitchBtn">تثبيت الطبقة الصوتية</button>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
