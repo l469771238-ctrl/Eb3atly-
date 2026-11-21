@@ -24,16 +24,27 @@ export function zipStore(files){
 }
 export function zipRead(u8){
   const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  // every read goes through here, so a truncated or malicious file throws instead of returning bad data
+  const need=(off,n)=>{if(!Number.isInteger(off)||off<0||off+n>u8.length)throw new Error('zip: truncated');};
+  if(u8.length<22) throw new Error('zip');
   let e=-1; for(let i=u8.length-22;i>=Math.max(0,u8.length-65557);i--){if(dv.getUint32(i,true)===0x06054b50){e=i;break}}
   if(e<0)throw new Error('zip');
-  const n=dv.getUint16(e+10,true); let p=dv.getUint32(e+16,true); const out={},dec=new TextDecoder();
+  need(e,22);
+  const n=dv.getUint16(e+10,true); let p=dv.getUint32(e+16,true);
+  const out=Object.create(null), dec=new TextDecoder();
   for(let i=0;i<n;i++){
+    need(p,46);
     if(dv.getUint32(p,true)!==0x02014b50)throw new Error('zip');
     const method=dv.getUint16(p+10,true),cs=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),el=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+    need(p+46,nl);
     const name=dec.decode(u8.subarray(p+46,p+46+nl));
     if(method!==0)throw new Error('method');
+    need(lo,30);
+    if(dv.getUint32(lo,true)!==0x04034b50)throw new Error('zip');
     const lnl=dv.getUint16(lo+26,true),lel=dv.getUint16(lo+28,true),ds=lo+30+lnl+lel;
-    out[name]=u8.subarray(ds,ds+cs); p+=46+nl+el+cl;
+    need(ds,cs);
+    out[name]=u8.subarray(ds,ds+cs);
+    p+=46+nl+el+cl;
   }
   return out;
 }

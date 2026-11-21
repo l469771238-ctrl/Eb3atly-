@@ -41,3 +41,19 @@ test('zipRead rejects a zip whose central directory is corrupted', () => {
   zip[idx + 2] = 0x00;
   assert.throws(() => zipRead(zip));
 });
+
+test('zipRead rejects a truncated archive instead of returning partial audio', () => {
+  const audio = new Uint8Array(5000).fill(7);
+  const zip = concat(zipStore([['audio/a.m4a', audio]]));
+  // cut off the tail, which holds the central directory and the end record
+  assert.throws(() => zipRead(zip.subarray(0, zip.length - 60)));
+  assert.throws(() => zipRead(zip.subarray(0, 40)));
+});
+
+test('zipRead keeps unusual names as plain keys (no prototype pollution)', () => {
+  const zip = concat(zipStore([['__proto__', enc.encode('x')], ['constructor', enc.encode('y')]]));
+  const back = zipRead(zip);
+  assert.equal(new TextDecoder().decode(back['__proto__']), 'x');
+  assert.equal(new TextDecoder().decode(back['constructor']), 'y');
+  assert.equal(Object.getPrototypeOf(back), null);
+});

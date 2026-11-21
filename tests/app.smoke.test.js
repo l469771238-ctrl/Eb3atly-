@@ -46,7 +46,8 @@ async function boot({ meta = null, blobs = {} } = {}) {
   w.HTMLMediaElement.prototype.play = () => Promise.resolve();
   w.HTMLMediaElement.prototype.pause = () => {};
   // fake microphone + MediaRecorder
-  w.navigator.mediaDevices = { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) };
+  w.__gumCalls = 0;
+  w.navigator.mediaDevices = { getUserMedia: async () => { w.__gumCalls++; await new Promise(r => setTimeout(r, 40)); return { getTracks: () => [{ stop() {} }] }; } };
   w.AudioContext = class {
     createMediaStreamSource() { return { connect() {} }; }
     createAnalyser() { return { fftSize: 256, frequencyBinCount: 128, getByteTimeDomainData(b) { b.fill(140); }, connect() {} }; }
@@ -139,5 +140,59 @@ test('the last remaining folder cannot be deleted', async () => {
   app.w.document.querySelector('#o2').click(); await sleep(30);
   assert.ok(app.$('#toast').textContent.includes('فولدر واحد على الأقل'));
   assert.equal(app.meta().folders.length, 1);
+  app.w.close();
+});
+
+test('double tap on the mic starts only one recording', async () => {
+  const app = await boot();
+  app.$('#tRec').click(); await sleep(30);
+  app.$('#micBtn').click();
+  app.$('#micBtn').click();
+  await sleep(120);
+  assert.equal(app.w.__gumCalls, 1);
+  app.w.close();
+});
+
+test('marker rename and delete are saved, not just shown', async () => {
+  const meta = {
+    folders: [{ id: 'f1', name: 'عام' }],
+    recs: [{ id: 'r1', name: 'محاضرة', folderId: 'f1', dur: 60, date: new Date().toISOString(), ext: '.wav', markers: [{ id: 'm1', t: 5, name: 'قديم' }, { id: 'm2', t: 9, name: 'اتحذف' }] }],
+  };
+  const app = await boot({ meta, blobs: { r1: new Uint8Array([1, 2]) } });
+  app.$('#tFiles').click(); await sleep(30);
+  app.w.document.querySelector('#folList .fbtn').click(); await sleep(30);
+  app.w.document.querySelector('#list .play').click(); await sleep(60);
+  // rename the first marker
+  app.w.document.querySelectorAll('#mkList .more')[0].click(); await sleep(20);
+  app.w.document.querySelector('#k1').click(); await sleep(20);
+  app.$('#mi').value = 'جديد'; app.w.document.querySelector('#mo').click(); await sleep(30);
+  // delete the second marker
+  app.w.document.querySelectorAll('#mkList .more')[1].click(); await sleep(20);
+  app.w.document.querySelector('#k2').click(); await sleep(30);
+  const saved = app.meta().recs[0].markers;
+  assert.equal(saved.length, 1, JSON.stringify(saved));
+  assert.equal(saved[0].name, 'جديد');
+  app.w.close();
+});
+
+test('search ignores letter case', async () => {
+  const meta = {
+    folders: [{ id: 'f1', name: 'عام' }],
+    recs: [{ id: 'r1', name: 'Meeting Notes', folderId: 'f1', dur: 3, date: new Date().toISOString(), markers: [] }],
+  };
+  const app = await boot({ meta, blobs: { r1: new Uint8Array([1]) } });
+  app.$('#tFiles').click(); await sleep(30);
+  app.w.document.querySelector('#folList .fbtn').click(); await sleep(30);
+  app.$('#q').value = 'meeting';
+  app.$('#q').dispatchEvent(new app.w.Event('input')); await sleep(20);
+  assert.ok(app.$('#list').textContent.includes('Meeting Notes'));
+  app.w.close();
+});
+
+test('the old WAV quality setting falls back to the default', async () => {
+  const app = await boot({ meta: { folders: [{ id: 'f1', name: 'عام' }], recs: [], quality: 'wav' } });
+  assert.equal(app.meta().quality, 'm4a-high');
+  app.$('#gearBtn').click(); await sleep(30);
+  assert.equal(app.w.document.querySelectorAll('#qOpts .optrow').length, 2);
   app.w.close();
 });

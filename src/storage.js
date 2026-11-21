@@ -77,10 +77,13 @@ export function loadMeta() {
   }
 }
 
+// Returns false when the write failed (for example, storage is full).
 export function saveMeta(meta) {
   try {
     localStorage.setItem(META_KEY, JSON.stringify(meta));
+    return true;
   } catch (e) {
     console.warn('Could not save metadata', e);
+    return false;
   }
 }

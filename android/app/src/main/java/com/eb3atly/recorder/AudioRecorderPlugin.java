@@ -33,6 +33,9 @@ public class AudioRecorderPlugin extends Plugin {
     private long accumulatedMs = 0;   // time recorded before the last pause
     private long segmentStartMs = 0;  // when the current (unpaused) segment started
     private boolean paused = false;
+    // Set when the system stopped the recorder on its own (e.g. a call took the mic).
+    // JS collects it with stop(), so the audio captured so far is not lost.
+    private JSObject pendingResult;
 
     @PluginMethod
     public void start(PluginCall call) {
@@ -81,11 +84,14 @@ public class AudioRecorderPlugin extends Plugin {
             ContextCompat.startForegroundService(getContext(), new Intent(getContext(), AudioRecorderService.class));
             mr.start();
 
+            mr.setOnErrorListener((rec, what, extra) -> onRecorderFailed());
+
             recorder = mr;
             currentFile = file;
             accumulatedMs = 0;
             segmentStartMs = SystemClock.elapsedRealtime();
             paused = false;
+            pendingResult = null;
 
             JSObject out = new JSObject();
             out.put("value", true);
@@ -139,11 +145,18 @@ public class AudioRecorderPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        if (recorder == null && pendingResult != null) {
+            JSObject out = new JSObject();
+            out.put("value", pendingResult);
+            pendingResult = null;
+            call.resolve(out);
+            return;
+        }
         if (recorder == null || currentFile == null) {
             call.reject("No recording in progress", "RECORDING_HAS_NOT_STARTED");
             return;
         }
-        long total = accumulatedMs + (paused ? 0 : SystemClock.elapsedRealtime() - segmentStartMs);
+        long total = durationMs();
         File file = currentFile;
         boolean ok = true;
         try {
@@ -174,6 +187,30 @@ public class AudioRecorderPlugin extends Plugin {
         JSObject out = new JSObject();
         out.put("status", recorder == null ? "NONE" : (paused ? "PAUSED" : "RECORDING"));
         call.resolve(out);
+    }
+
+    private long durationMs() {
+        return accumulatedMs + (paused ? 0 : SystemClock.elapsedRealtime() - segmentStartMs);
+    }
+
+    // Runs on the main thread when MediaRecorder reports an error. Finalize what was captured.
+    private void onRecorderFailed() {
+        if (recorder == null) return;
+        long total = durationMs();
+        File file = currentFile;
+        try { recorder.stop(); } catch (RuntimeException ignored) { }
+        releaseRecorder();
+        stopService();
+        if (file != null && file.exists() && file.length() > 0) {
+            JSObject value = new JSObject();
+            value.put("path", file.getAbsolutePath());
+            value.put("msDuration", total);
+            value.put("mimeType", "audio/mp4");
+            pendingResult = value;
+        } else if (file != null) {
+            file.delete();
+        }
+        notifyListeners("recordingInterrupted", new JSObject());
     }
 
     private void resolveValue(PluginCall call, boolean value) {

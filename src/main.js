@@ -29,12 +29,13 @@ const nid=()=>'i'+Math.random().toString(36).slice(2,9)+Date.now().toString(36);
 let ready=false; // nothing is written to storage until the saved state has been loaded
 function persist(){
   if(!ready) return;
-  saveMeta({
+  const ok=saveMeta({
     folders:state.folders,
     recs:state.recs.map(({blob,url,date,...m})=>({...m,date:date.toISOString()})),
     quality:state.quality, denoise:state.denoise, lastFolder:state.lastFolder,
     lastBackup:state.lastBackup?state.lastBackup.toISOString():null
   });
+  if(!ok) toast('مساحة التخزين ممتلئة. التغييرات الأخيرة ممكن ما تتحفظش');
 }
 async function hydrate(){
   const meta=loadMeta();
@@ -44,11 +45,14 @@ async function hydrate(){
     state.denoise=meta.denoise??state.denoise;
     state.lastFolder=meta.lastFolder||null;
     state.lastBackup=meta.lastBackup?new Date(meta.lastBackup):null;
+    if(!['m4a-mid','m4a-high'].includes(state.quality)) state.quality='m4a-high'; // old "WAV" option is gone
     const recs=[];
     for(const r of meta.recs||[]){
-      const blob=await getBlob(r.id).catch(()=>null);
+      // A real read error throws and stops loading, so nothing gets dropped or overwritten.
+      const blob=await getBlob(r.id);
       if(!blob) continue; // metadata without audio: skip it instead of showing a broken item
-      recs.push({...r,blob,url:URL.createObjectURL(blob),date:new Date(r.date)});
+      const d=new Date(r.date);
+      recs.push({...r,blob,url:URL.createObjectURL(blob),date:isNaN(d)?new Date():d});
     }
     state.recs=recs;
     await pruneBlobs(new Set(recs.map(r=>r.id))).catch(()=>{});
@@ -93,7 +97,7 @@ function openFolder(id){state.cur=id;state.q='';$('#q').value='';show('fview')}
 function renderList(){
   const el=$('#list'); el.innerHTML='';
   $('#fvTitle').textContent=folderName(state.cur);
-  const items=state.recs.filter(r=>r.folderId===state.cur&&r.name.includes(state.q)).sort((a,b)=>b.date-a.date);
+  const items=state.recs.filter(r=>r.folderId===state.cur&&r.name.toLowerCase().includes(state.q.toLowerCase())).sort((a,b)=>b.date-a.date);
   if(!items.length){el.innerHTML=`<div class="empty"><strong>مفيش تسجيلات هنا</strong>سجّل من الشاشة الرئيسية واختار الفولدر ده وقت الحفظ.</div>`;return}
   items.forEach(r=>{
     const d=document.createElement('div'); d.className='rec'+(state.playing===r.id?' playing':'');
@@ -149,7 +153,7 @@ function recOptions(id){
   $('#modal h3').textContent=r.name;
   $('#o1').onclick=()=>{closeModal();askText('اسم التسجيل',r.name,v=>{r.name=v;render();if(state.playing===id)$('#pTitle').textContent=v})};
   $('#o2').onclick=()=>moveRec(id);
-  $('#o3').onclick=()=>{closeModal();const a=document.createElement('a');a.href=r.url;a.download=r.name+(r.ext||'.webm');a.click()};
+  $('#o3').onclick=()=>{closeModal();shareRecording(r)};
   $('#o4').onclick=()=>{
     openModal(`<h3>حذف التسجيل؟</h3><p style="color:var(--muted)">مش هتقدر ترجّعه بعد كده.</p><div class="m-actions"><button id="mc">إلغاء</button><button class="danger" id="mo">حذف</button></div>`);
     $('#mc').onclick=closeModal;
@@ -182,7 +186,7 @@ function openSave(blob,dur,ext,marks){
       c.onclick=()=>{fid=f.id;sc.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));c.classList.add('on')};sc.appendChild(c)});
     const add=document.createElement('button');add.className='chip add';add.textContent='+ فولدر جديد';add.onclick=()=>{adding=!adding;$('#nfw').classList.toggle('hidden',!adding);if(adding)$('#nfi').focus()};sc.appendChild(add);
     $('#nfa').onclick=()=>{const v=$('#nfi').value.trim();if(!v)return;const f={id:nid(),name:v};state.folders.push(f);fid=f.id;adding=false;draw()};
-    $('#sd').onclick=()=>{URL.revokeObjectURL(blob);closeModal();toast('اتجاهل التسجيل');show('home')};
+    $('#sd').onclick=()=>{closeModal();toast('اتجاهل التسجيل');show('home')};
     $('#ss').onclick=async()=>{
       if(!fid){toast('اختار فولدر الأول');return}
       if(saving)return; saving=true;
@@ -237,11 +241,14 @@ function endUI(){
 function afterRecord(blob,dur,ext){
   const mk=recMarks.slice(); recMarks=[]; renderRecMarks(); openSave(blob,dur,ext,mk);
 }
+let starting=false;
 async function startRec(){
-  if(busy) return;
-  if(!(await ensureMicPermission())){toast('لازم تسمح باستخدام المايك عشان تقدر تسجّل');return}
-  if(isNative) return startNative();
-  return startWeb();
+  if(busy||starting) return; // a second tap while the first start is still in progress
+  starting=true;
+  try{
+    if(!(await ensureMicPermission())){toast('لازم تسمح باستخدام المايك عشان تقدر تسجّل');return}
+    if(isNative) await startNative(); else await startWeb();
+  }finally{starting=false}
 }
 async function startWeb(){
   try{stream=await navigator.mediaDevices.getUserMedia({audio:{noiseSuppression:state.denoise,echoCancellation:state.denoise,autoGainControl:state.denoise,channelCount:1,sampleRate:48000}})}
@@ -252,6 +259,8 @@ async function startWeb(){
     chunks=[]; mr=new MediaRecorder(stream,recOpts());
     mr.ondataavailable=e=>e.data.size&&chunks.push(e.data);
     mr.onstop=onWebStopped;
+    // If the mic disappears or the recorder fails, finish with what was captured instead of hanging.
+    mr.onerror=()=>{if(mr&&mr.state!=='inactive')mr.stop()};
     mr.start(250);
   }catch(e){
     stream.getTracks().forEach(t=>t.stop()); stream=null; if(actx) actx.close(); actx=null; analyser=null; mr=null;
@@ -263,6 +272,10 @@ async function startNative(){
   try{await AudioRecorder.start()}
   catch(e){toast(nativeErr(e));return}
   beginUI();
+}
+// Android: the native side stopped on its own (e.g. a phone call took the mic) and kept what it had.
+function onNativeInterrupted(){
+  if(busy){toast('انقطع التسجيل. هنحفظ اللي اتسجّل لحد دلوقتي');stopRec()}
 }
 function loopWave(){
   const buf=analyser?new Uint8Array(analyser.frequencyBinCount):null,bars=56,hist=[];
@@ -360,19 +373,20 @@ async function openPlayer(id){
   $('#pTitle').textContent=r.name;$('#pSub').textContent=folderName(r.folderId)+' · '+dateStr(r.date);
   $('#sheet').classList.add('open');audio.src=r.url;setSpeed(audio.playbackRate||1);audio.preservesPitch=$('#pitchBtn').classList.contains('on');
   peaks=[];drawPeaks();audio.play().catch(()=>{});renderList();renderMarks();
-  peaks=await computePeaks(r.blob);drawPeaks();
+  const p=await computePeaks(r.blob);
+  if(cur===r){peaks=p;drawPeaks()} // another recording may have been opened meanwhile
 }
 function closePlayer(){audio.pause();$('#sheet').classList.remove('open');state.playing=null;cur=null;render()}
 $('#closeP').onclick=closePlayer; $('#moreP').onclick=()=>cur&&recOptions(cur.id);
 $('#pp').onclick=()=>audio.paused?audio.play():audio.pause();
 $('#back10').onclick=()=>audio.currentTime=Math.max(0,audio.currentTime-10);
-$('#fwd10').onclick=()=>audio.currentTime=Math.min(audio.duration||0,audio.currentTime+10);
+$('#fwd10').onclick=()=>audio.currentTime=Math.min(audio.duration||Infinity,audio.currentTime+10);
 audio.onplay=()=>$('#ppIco').innerHTML=ICON.pause; audio.onpause=()=>$('#ppIco').innerHTML=ICON.play;
 audio.ontimeupdate=()=>{const d=(cur&&cur.dur)||audio.duration||0;$('#tCur').textContent=fmt(audio.currentTime);$('#tDur').textContent=fmt(d);$('#seek').value=d?Math.min(1000,audio.currentTime/d*1000):0;drawPeaks()};
-$('#seek').oninput=e=>{const d=(cur&&cur.dur)||audio.duration||0;audio.currentTime=e.target.value/1000*d};
+$('#seek').oninput=e=>{const d=(cur&&cur.dur)||audio.duration||0;if(d>0)audio.currentTime=e.target.value/1000*d};
 $('#loopBtn').onclick=e=>{audio.loop=!audio.loop;e.currentTarget.classList.toggle('on',audio.loop)};
 $('#pitchBtn').onclick=e=>{const on=!e.currentTarget.classList.contains('on');e.currentTarget.classList.toggle('on',on);audio.preservesPitch=on};
-pw.onclick=e=>{const r=pw.getBoundingClientRect(),x=1-(e.clientX-r.left)/r.width,d=(cur&&cur.dur)||audio.duration||0;audio.currentTime=x*d};
+pw.onclick=e=>{const r=pw.getBoundingClientRect(),x=1-(e.clientX-r.left)/r.width,d=(cur&&cur.dur)||audio.duration||0;if(d>0)audio.currentTime=Math.min(1,Math.max(0,x))*d};
 
 /* ---------- markers ---------- */
 let recMarks=[];
@@ -411,15 +425,15 @@ function renderMarks(){
 function markOptions(m){
   openModal(`<h3></h3><button class="opt" id="k1">${ico('edit')}إعادة تسمية العلامة</button><button class="opt danger" id="k2">${ico('del')}حذف العلامة</button>`);
   $('#modal h3').textContent=fmt(m.t)+' · '+m.name;
-  $('#k1').onclick=()=>{closeModal();askText('اسم العلامة',m.name,v=>{m.name=v;renderMarks()})};
-  $('#k2').onclick=()=>{cur.markers=cur.markers.filter(x=>x!==m);closeModal();renderMarks();drawPeaks();toast('اتحذفت العلامة')};
+  $('#k1').onclick=()=>{closeModal();askText('اسم العلامة',m.name,v=>{m.name=v;renderMarks();render()})};
+  $('#k2').onclick=()=>{cur.markers=cur.markers.filter(x=>x!==m);closeModal();renderMarks();drawPeaks();render();toast('اتحذفت العلامة')};
 }
 $('#addMk').onclick=()=>{
   if(!cur)return;
   cur.markers=cur.markers||[];
   const m={id:nid(),t:audio.currentTime,name:'علامة '+(cur.markers.length+1)};
   cur.markers.push(m); renderMarks(); drawPeaks(); render();
-  askText('اسم العلامة عند '+fmt(m.t),m.name,v=>{m.name=v;renderMarks()});
+  askText('اسم العلامة عند '+fmt(m.t),m.name,v=>{m.name=v;renderMarks();render()});
 };
 
 /* ---------- recording quality ---------- */
@@ -433,9 +447,8 @@ function recOpts(){
 
 /* ---------- settings screen ---------- */
 const QUALS=[
-  ['m4a-mid','M4A متوسطة','حوالي 1 ميجا للدقيقة'],
-  ['m4a-high','M4A عالية (الافتراضي)','حوالي 2 ميجا للدقيقة، صوت واضح جداً'],
-  ['wav','WAV بدون ضغط','حوالي 5.7 ميجا للدقيقة، أعلى وضوح وأكبر حجم']
+  ['m4a-mid','متوسطة (128 كيلوبت/ث)','حوالي 1 ميجا للدقيقة، مناسبة للكلام'],
+  ['m4a-high','عالية (256 كيلوبت/ث، الافتراضي)','حوالي 2 ميجا للدقيقة، وضوح أعلى']
 ];
 function renderSettings(){
   const q=$('#qOpts'); q.innerHTML='';
@@ -476,6 +489,7 @@ async function buildZip(){
   files.unshift(['manifest.json',new TextEncoder().encode(JSON.stringify(manifest,null,1))]);
   return new Blob(zipStore(files),{type:'application/zip'});
 }
+const safeName=s=>(String(s||'').replace(/[\/:*?"<>|\x00-\x1f]+/g,'_').trim().slice(0,80))||'تسجيل';
 function blobToBase64(blob){
   return new Promise((resolve,reject)=>{
     const fr=new FileReader();
@@ -486,14 +500,21 @@ function blobToBase64(blob){
 }
 // Android: write the backup to the app cache and open the system share sheet
 // (lets the user save it to Drive, Files, email, etc.).
-async function shareBackup(blob,name){
+async function shareFile(blob,name,title){
   const written=await Filesystem.writeFile({path:name,data:await blobToBase64(blob),directory:Directory.Cache,recursive:true});
-  await Share.share({title:'نسخة احتياطية - A.R صوتي',dialogTitle:'حفظ النسخة',files:[written.uri]});
+  await Share.share({title,dialogTitle:title,files:[written.uri]});
+}
+async function shareRecording(r){
+  const name=safeName(r.name)+(r.ext||'.webm');
+  try{
+    if(isNative) await shareFile(r.blob,name,r.name);
+    else{const a=document.createElement('a');a.href=r.url;a.download=name;a.click()}
+  }catch(e){toast('ما قدرناش نشارك الملف')}
 }
 $('#exBtn').onclick=async()=>{
   const b=await buildZip(); if(!b)return;
   try{
-    if(isNative) await shareBackup(b,bkName());
+    if(isNative) await shareFile(b,bkName(),'نسخة احتياطية - A.R صوتي');
     else{
       const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=bkName(); a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     }
@@ -510,30 +531,47 @@ $('#shBtn').onclick=async()=>{
 $('#imBtn').onclick=()=>$('#imFile').click();
 $('#imFile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importZip(f)};
 async function importZip(file){
+  let files,m;
   try{
-    const files=zipRead(new Uint8Array(await file.arrayBuffer()));
+    files=zipRead(new Uint8Array(await file.arrayBuffer()));
     if(!files['manifest.json']) throw new Error('manifest');
-    const m=JSON.parse(new TextDecoder().decode(files['manifest.json']));
-    if(m.app!=='recorder')throw new Error('app');
-    const fmap={}; let nf=0,nr=0;
-    for(const f of (m.folders||[])){let ex=state.folders.find(x=>x.name===f.name);if(!ex){ex={id:nid(),name:f.name};state.folders.push(ex);nf++}fmap[f.id]=ex.id}
+    m=JSON.parse(new TextDecoder().decode(files['manifest.json']));
+    if(!m||m.app!=='recorder'||!Array.isArray(m.recordings||[])) throw new Error('app');
+  }catch(e){toast('الملف ده مش نسخة من التطبيق');return}
+  let nf=0,nr=0,failed=false;
+  try{
+    const fmap={};
+    for(const f of (m.folders||[])){
+      if(!f||typeof f.name!=='string'||!f.name.trim()) continue;
+      let ex=state.folders.find(x=>x.name===f.name);
+      if(!ex){ex={id:nid(),name:f.name};state.folders.push(ex);nf++}
+      fmap[f.id]=ex.id;
+    }
     const fallback=state.folders[0].id; // there is always at least one folder
     for(const r of (m.recordings||[])){
-      if(state.recs.some(x=>x.id===r.id)||!files[r.file])continue;
+      if(!r||typeof r.id!=='string'||!r.id||typeof r.file!=='string') continue;
+      if(state.recs.some(x=>x.id===r.id)||!files[r.file]) continue;
       const mime=r.ext==='.m4a'?'audio/mp4':r.ext==='.wav'?'audio/wav':'audio/webm';
       const blob=new Blob([files[r.file]],{type:mime});
       await putBlob(r.id,blob);
-      const d=new Date(r.date); 
-      state.recs.push({id:r.id,name:r.name,folderId:fmap[r.folderId]||fallback,blob,url:URL.createObjectURL(blob),dur:r.dur,date:isNaN(d)?new Date():d,ext:r.ext,markers:r.markers||[]});nr++;
+      const d=new Date(r.date);
+      state.recs.push({id:r.id,name:String(r.name||'تسجيل'),folderId:fmap[r.folderId]||fallback,blob,url:URL.createObjectURL(blob),dur:Number(r.dur)||0,date:isNaN(d)?new Date():d,ext:r.ext,markers:Array.isArray(r.markers)?r.markers:[]});
+      nr++;
     }
-    render();
-    toast(nr||nf?`اتستورد ${nr} تسجيل و${nf} فولدر جديد`:'كل التسجيلات دي موجودة بالفعل');
-  }catch(e){toast('الملف ده مش نسخة من التطبيق')}
+  }catch(e){
+    failed=true;
+    console.error('Import failed',e);
+  }finally{
+    render(); // save whatever was imported so the library stays consistent
+  }
+  if(failed) toast(`حصلت مشكلة أثناء الاستيراد. اتستورد ${nr} تسجيل قبل ما تقف`);
+  else toast(nr||nf?`اتستورد ${nr} تسجيل و${nf} فولدر جديد`:'كل التسجيلات دي موجودة بالفعل');
 }
 
 /* ---------- Android: hardware back button ---------- */
 async function setupNative(){
   if(!isNative) return;
+  await AudioRecorder.addListener('recordingInterrupted',onNativeInterrupted);
   await CapApp.addListener('backButton',()=>{
     if($('#sheet').classList.contains('open')){closePlayer();return}
     if($('#scrim').classList.contains('open')){if(!modalLock)closeModal();return}
@@ -546,7 +584,7 @@ async function setupNative(){
 /* ---------- init ---------- */
 async function init(){
   // If loading the saved state fails, the app still opens; saving stays disabled so nothing is overwritten.
-  try{await hydrate()}catch(e){console.error('Could not load saved recordings',e)}
+  try{await hydrate()}catch(e){console.error('Could not load saved recordings',e);toast('تعذّر تحميل التسجيلات المحفوظة. جرّب تفتح التطبيق تاني')}
   await setupNative();
   render(); idleWave();
 }
