@@ -196,3 +196,18 @@ test('the old WAV quality setting falls back to the default', async () => {
   assert.equal(app.w.document.querySelectorAll('#qOpts .optrow').length, 2);
   app.w.close();
 });
+
+test('audio is read from storage only when a recording is opened', async () => {
+  const meta = {
+    folders: [{ id: 'f1', name: 'عام' }],
+    recs: [{ id: 'r1', name: 'ملف كبير', folderId: 'f1', dur: 30, date: new Date().toISOString(), ext: '.webm', size: 4000, markers: [] }],
+  };
+  const app = await boot({ meta, blobs: { r1: new Uint8Array(4000) } });
+  assert.equal(app.meta().recs[0].size, 4000);
+  app.$('#tFiles').click(); await sleep(30);
+  app.w.document.querySelector('#folList .fbtn').click(); await sleep(30);
+  app.w.document.querySelector('#list .play').click(); await sleep(80);
+  assert.equal(app.$('#pTitle').textContent, 'ملف كبير');
+  assert.deepEqual(app.errors, []);
+  app.w.close();
+});

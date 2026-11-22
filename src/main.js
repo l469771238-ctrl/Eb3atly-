@@ -9,7 +9,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 // Native recorder (android/app/src/main/java/com/eb3atly/recorder/AudioRecorderPlugin.java)
 const AudioRecorder = registerPlugin('AudioRecorder');
-import { loadMeta, saveMeta, putBlob, getBlob, deleteBlob, pruneBlobs } from './storage.js';
+import { loadMeta, saveMeta, putBlob, getBlob, deleteBlob, pruneBlobs, listBlobIds } from './storage.js';
 import { crc32, zipStore, zipRead } from './zip.js';
 
 const isNative = Capacitor.isNativePlatform();
@@ -46,13 +46,18 @@ async function hydrate(){
     state.lastFolder=meta.lastFolder||null;
     state.lastBackup=meta.lastBackup?new Date(meta.lastBackup):null;
     if(!['m4a-mid','m4a-high'].includes(state.quality)) state.quality='m4a-high'; // old "WAV" option is gone
+    // Only metadata is loaded here. Audio is read from IndexedDB when a recording is played or shared.
+    // A real read error throws and stops loading, so nothing gets dropped or overwritten.
+    const ids=await listBlobIds();
     const recs=[];
     for(const r of meta.recs||[]){
-      // A real read error throws and stops loading, so nothing gets dropped or overwritten.
-      const blob=await getBlob(r.id);
-      if(!blob) continue; // metadata without audio: skip it instead of showing a broken item
+      if(!ids.has(r.id)) continue; // metadata without audio: skip it instead of showing a broken item
       const d=new Date(r.date);
-      recs.push({...r,blob,url:URL.createObjectURL(blob),date:isNaN(d)?new Date():d});
+      recs.push({...r,date:isNaN(d)?new Date():d});
+    }
+    // Older saves did not store the size: read those blobs once and remember their size.
+    for(const r of recs){
+      if(typeof r.size!=='number'){const b=await getBlob(r.id);r.size=b?b.size:0}
     }
     state.recs=recs;
     await pruneBlobs(new Set(recs.map(r=>r.id))).catch(()=>{});
@@ -142,7 +147,7 @@ function folderOptions(){
     $('#modal h3').textContent='حذف «'+f.name+'»؟';
     $('#mc').onclick=closeModal;
     $('#mo').onclick=()=>{
-      state.recs=state.recs.filter(r=>{ if(r.folderId!==f.id)return true; if(base){r.folderId=base.id;return true} URL.revokeObjectURL(r.url); deleteBlob(r.id).catch(()=>{}); return false });
+      state.recs=state.recs.filter(r=>{ if(r.folderId!==f.id)return true; if(base){r.folderId=base.id;return true} revokeUrl(r); deleteBlob(r.id).catch(()=>{}); return false });
       state.folders=state.folders.filter(x=>x.id!==f.id); closeModal(); show('files');
     };
   };
@@ -157,7 +162,7 @@ function recOptions(id){
   $('#o4').onclick=()=>{
     openModal(`<h3>حذف التسجيل؟</h3><p style="color:var(--muted)">مش هتقدر ترجّعه بعد كده.</p><div class="m-actions"><button id="mc">إلغاء</button><button class="danger" id="mo">حذف</button></div>`);
     $('#mc').onclick=closeModal;
-    $('#mo').onclick=()=>{if(state.playing===id)closePlayer();URL.revokeObjectURL(r.url);deleteBlob(id).catch(()=>{});state.recs=state.recs.filter(x=>x.id!==id);closeModal();render();toast('اتحذف')};
+    $('#mo').onclick=()=>{if(state.playing===id)closePlayer();revokeUrl(r);deleteBlob(id).catch(()=>{});state.recs=state.recs.filter(x=>x.id!==id);closeModal();render();toast('اتحذف')};
   };
 }
 function moveRec(id){
@@ -193,7 +198,7 @@ function openSave(blob,dur,ext,marks){
       const n=(name||'').trim()||('تسجيل '+(state.recs.length+1)), id=nid();
       try{await putBlob(id,blob)}
       catch(e){saving=false;toast('ما قدرناش نحفظ التسجيل. تأكد إن فيه مساحة فاضية');return}
-      state.recs.push({id,name:n,folderId:fid,blob,url:URL.createObjectURL(blob),dur,date:new Date(),ext,markers:(marks||[])});
+      state.recs.push({id,name:n,folderId:fid,size:blob.size,dur,date:new Date(),ext,markers:(marks||[])});
       state.lastFolder=fid; saving=false; closeModal(); show('home'); toast('اتحفظ «'+n+'» في «'+folderName(fid)+'»');
     };
   };
@@ -369,13 +374,19 @@ function drawPeaks(){
     cur.markers.forEach(m=>{const x=w*(1-Math.min(1,m.t/dd));pctx.fillRect(x-devicePixelRatio,0,2*devicePixelRatio,h);pctx.beginPath();pctx.arc(x,6*devicePixelRatio,5*devicePixelRatio,0,7);pctx.fill()})}
 }
 async function openPlayer(id){
-  const r=state.recs.find(x=>x.id===id);cur=r;state.playing=id;
+  const r=state.recs.find(x=>x.id===id); if(!r)return;
+  let blob;
+  try{blob=await getBlob(r.id)}catch(e){toast('ما قدرناش نفتح التسجيل');return}
+  if(!blob){toast('ملف الصوت ده مش موجود');return}
+  if(!r.url) r.url=URL.createObjectURL(blob);
+  cur=r;state.playing=id;
   $('#pTitle').textContent=r.name;$('#pSub').textContent=folderName(r.folderId)+' · '+dateStr(r.date);
   $('#sheet').classList.add('open');audio.src=r.url;setSpeed(audio.playbackRate||1);audio.preservesPitch=$('#pitchBtn').classList.contains('on');
   peaks=[];drawPeaks();audio.play().catch(()=>{});renderList();renderMarks();
-  const p=await computePeaks(r.blob);
+  const p=await computePeaks(blob);
   if(cur===r){peaks=p;drawPeaks()} // another recording may have been opened meanwhile
 }
+function revokeUrl(r){ if(r.url){URL.revokeObjectURL(r.url); r.url=null} }
 function closePlayer(){audio.pause();$('#sheet').classList.remove('open');state.playing=null;cur=null;render()}
 $('#closeP').onclick=closePlayer; $('#moreP').onclick=()=>cur&&recOptions(cur.id);
 $('#pp').onclick=()=>audio.paused?audio.play():audio.pause();
@@ -464,7 +475,7 @@ function renderSettings(){
   $('#qDesc').textContent=isNative?'على الموبايل التسجيل بيتعمل بصيغة M4A (AAC) بجودة ثابتة وواضحة.':'الأعلى جودة أوضح وأكبر حجماً. الصيغة بتتحدد حسب المتصفح.';
   $('#shBtn').classList.toggle('hidden',isNative);
   $('#exTxt').textContent=isNative?'مشاركة / حفظ النسخة':'تصدير نسخة (ZIP)';
-  const mb=state.recs.reduce((a,r)=>a+(r.blob?r.blob.size:0),0)/1048576;
+  const mb=state.recs.reduce((a,r)=>a+(r.size||0),0)/1048576;
   $('#stRec').textContent=state.recs.length; $('#stFol').textContent=state.folders.length; $('#stMb').textContent=mb<10?mb.toFixed(1):Math.round(mb);
   const lb=$('#lastBk');
   if(state.lastBackup){lb.textContent='آخر نسخة: '+dateStr(state.lastBackup);lb.className='desc'}
@@ -482,9 +493,11 @@ async function buildZip(){
   const manifest={app:'recorder',version:1,exportedAt:new Date().toISOString(),folders:state.folders.map(f=>({id:f.id,name:f.name})),recordings:[]};
   const files=[];
   for(const r of state.recs){
+    const blob=await getBlob(r.id);
+    if(!blob) continue;
     const ext=r.ext||'.webm',fn='audio/'+r.id+ext;
     manifest.recordings.push({id:r.id,name:r.name,folderId:r.folderId,dur:r.dur,date:r.date.toISOString(),file:fn,ext,markers:r.markers||[]});
-    files.push([fn,new Uint8Array(await r.blob.arrayBuffer())]);
+    files.push([fn,new Uint8Array(await blob.arrayBuffer())]);
   }
   files.unshift(['manifest.json',new TextEncoder().encode(JSON.stringify(manifest,null,1))]);
   return new Blob(zipStore(files),{type:'application/zip'});
@@ -507,8 +520,14 @@ async function shareFile(blob,name,title){
 async function shareRecording(r){
   const name=safeName(r.name)+(r.ext||'.webm');
   try{
-    if(isNative) await shareFile(r.blob,name,r.name);
-    else{const a=document.createElement('a');a.href=r.url;a.download=name;a.click()}
+    const blob=await getBlob(r.id);
+    if(!blob) throw new Error('missing audio');
+    if(isNative) await shareFile(blob,name,r.name);
+    else{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=name;a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),4000);
+    }
   }catch(e){toast('ما قدرناش نشارك الملف')}
 }
 $('#exBtn').onclick=async()=>{
@@ -555,7 +574,7 @@ async function importZip(file){
       const blob=new Blob([files[r.file]],{type:mime});
       await putBlob(r.id,blob);
       const d=new Date(r.date);
-      state.recs.push({id:r.id,name:String(r.name||'تسجيل'),folderId:fmap[r.folderId]||fallback,blob,url:URL.createObjectURL(blob),dur:Number(r.dur)||0,date:isNaN(d)?new Date():d,ext:r.ext,markers:Array.isArray(r.markers)?r.markers:[]});
+      state.recs.push({id:r.id,name:String(r.name||'تسجيل'),folderId:fmap[r.folderId]||fallback,size:blob.size,dur:Number(r.dur)||0,date:isNaN(d)?new Date():d,ext:r.ext,markers:Array.isArray(r.markers)?r.markers:[]});
       nr++;
     }
   }catch(e){

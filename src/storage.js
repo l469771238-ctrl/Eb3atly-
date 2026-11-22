@@ -55,6 +55,17 @@ export function deleteBlob(id) {
   return tx('readwrite', (s) => s.delete(id));
 }
 
+// Ids of all stored audio files (keys only, no audio is read).
+export async function listBlobIds() {
+  const db = await openDb();
+  const keys = await new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return new Set(keys);
+}
+
 // Remove every stored blob whose key is not in `keepIds` (cleans up after crashes).
 export async function pruneBlobs(keepIds) {
   const db = await openDb();
